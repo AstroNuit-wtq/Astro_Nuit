@@ -9,7 +9,7 @@ permissions:
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -17,11 +17,30 @@ jobs:
 
       - name: Show structure
         run: |
-          echo "=== Repository contents ==="
           ls -la
-          echo "=== Swift files ==="
-          find . -name "*.swift" | head -40
-          ls -la project.yml || echo "NO project.yml found"
+          find . -name "*.swift" | head -30
+
+      - name: Download NASA planet textures (public domain)
+        run: |
+          mkdir -p AstroNuit/Resources/Textures
+          cd AstroNuit/Resources/Textures
+
+          # Free NASA / public domain solar system textures (reliable mirrors)
+          # Using solar system scope / NASA-derived public domain textures
+          curl -L -o sun.jpg        "https://www.solarsystemscope.com/textures/download/2k_sun.jpg" || true
+          curl -L -o mercury.jpg    "https://www.solarsystemscope.com/textures/download/2k_mercury.jpg" || true
+          curl -L -o venus.jpg      "https://www.solarsystemscope.com/textures/download/2k_venus_surface.jpg" || true
+          curl -L -o earth.jpg      "https://www.solarsystemscope.com/textures/download/2k_earth_daymap.jpg" || true
+          curl -L -o moon.jpg       "https://www.solarsystemscope.com/textures/download/2k_moon.jpg" || true
+          curl -L -o mars.jpg       "https://www.solarsystemscope.com/textures/download/2k_mars.jpg" || true
+          curl -L -o jupiter.jpg    "https://www.solarsystemscope.com/textures/download/2k_jupiter.jpg" || true
+          curl -L -o saturn.jpg     "https://www.solarsystemscope.com/textures/download/2k_saturn.jpg" || true
+          curl -L -o uranus.jpg     "https://www.solarsystemscope.com/textures/download/2k_uranus.jpg" || true
+          curl -L -o neptune.jpg    "https://www.solarsystemscope.com/textures/download/2k_neptune.jpg" || true
+
+          echo "=== Downloaded textures ==="
+          ls -lh
+          du -sh .
 
       - name: Select Xcode
         run: |
@@ -46,18 +65,20 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build
 
-      - name: Package
+      - name: Package IPA
         if: always()
         run: |
           mkdir -p Payload final
           APP=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" 2>/dev/null | head -1 || true)
           if [ -n "$APP" ]; then
             echo "Found app: $APP"
+            echo "App size:"
+            du -sh "$APP"
             cp -R "$APP" Payload/
             zip -r AstroNuit-unsigned.ipa Payload
             ls -lh AstroNuit-unsigned.ipa
           else
-            echo "WARNING: No .app was produced by xcodebuild"
+            echo "WARNING: No .app produced"
             zip -r AstroNuit-unsigned.ipa AstroNuit project.yml || true
           fi
           cp AstroNuit-unsigned.ipa final/ 2>/dev/null || true
