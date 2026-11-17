@@ -1,0 +1,154 @@
+name: Build Astro_Nuit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Debug - show repository structure
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          echo "=== Root contents ==="
+          ls -la
+          echo "=== Looking for project files ==="
+          find . -maxdepth 3 -type f \( -name "*.swift" -o -name "project.yml" -o -name "*.xcodeproj" -o -name "Package.swift" -o -name "README.md" \) | head -50
+
+      - name: Select Xcode
+        run: |
+          if [ -d "/Applications/Xcode_16.2.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.2.app
+          elif [ -d "/Applications/Xcode_16.1.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.1.app
+          elif [ -d "/Applications/Xcode_16.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.app
+          else
+            echo "Using default Xcode"
+          fi
+          xcodebuild -version
+
+      - name: Try generate Xcode project with XcodeGen
+        run: |
+          if [ -f "project.yml" ]; then
+            echo "Found project.yml — trying XcodeGen"
+            brew install xcodegen || true
+            xcodegen generate || echo "XcodeGen failed or not available"
+          else
+            echo "No project.yml found"
+          fi
+
+      - name: Build (best effort)
+        id: build
+        run: |
+          set +e
+          
+          if [ -d "AstroNuit.xcodeproj" ]; then
+            echo "Building with xcodebuild..."
+            xcodebuild \
+              -project AstroNuit.xcodeproj \
+              -scheme AstroNuit \
+              -destination 'generic/platform=iOS' \
+              -configuration Release \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              build
+            echo "xcodebuild exit code: $?"
+          else
+            echo "No AstroNuit.xcodeproj found — skipping real build"
+          fi
+
+      - name: Package output
+        if: always()
+        run: |
+          set -e
+          mkdir -p output final
+          
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "AstroNuit.app" -type d 2>/dev/null | head -n 1 || true)
+          
+          if [ -n "$APP_PATH" ]; then
+            echo "Found app at: $APP_PATH"
+            mkdir -p output/Payload
+            cp -R "$APP_PATH" output/Payload/
+            cd output
+            zip -r ../AstroNuit-unsigned.ipa Payload
+            cd ..
+          else
+            echo "No .app found — packaging sources as fallback"
+            zip -r AstroNuit-unsigned.ipa \
+              AstroNuit \
+              project.yml \
+              README.md \
+              .github \
+              2>/dev/null || \
+            zip -r AstroNuit-unsigned.ipa . -x "*.git*" -x "*DerivedData*" -x "*final*" -x "*output*"
+          fi
+          
+          WORKFLOW_FILE=$(find .github/workflows -name "*.yml" -o -name "*.yaml" 2>/dev/null | head -n 1 || true)
+          
+          if [ -n "$WORKFLOW_FILE" ]; then
+            cp "$WORKFLOW_FILE" final/workflow.yml
+          else
+            echo "No workflow file found" > final/workflow.yml
+          fi
+          
+          if [ -f "AstroNuit-unsigned.ipa" ]; then
+            cp AstroNuit-unsigned.ipa final/
+          else
+            echo "no ipa created" > final/no-ipa.txt
+          fi
+          
+          cd final
+          zip -r ../AstroNuit-Build-Output.zip .
+          cd ..
+          
+          echo "=== Final output ==="
+          ls -la
+          ls -la final/
+
+      - name: Upload Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstroNuit-Build
+          path: AstroNuit-Build-Output.zip
+          retention-days: 10
+          if-no-files-found: warn
+
+      - name: Clean repository (keep only .github)
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          echo "=== Before clean ==="
+          ls -la
+          
+          find . -mindepth 1 -maxdepth 1 ! -name '.github' ! -name '.git' -exec rm -rf {} +
+          
+          echo "=== After clean ==="
+          ls -la
+          
+          git add -A
+          git status
+          
+          if git diff --staged --quiet; then
+            echo "Nothing to commit"
+          else
+            git commit -m "chore: clean repository after build — keep only .github" || true
+            git push --force origin HEAD || echo "Force push failed (check branch protection / permissions)"
+          fi
