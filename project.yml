@@ -25,9 +25,14 @@ targets:
     platform: iOS
     sources:
       - path: AstroNuit
+        excludes:
+          - "Resources/Textures/**"
+    resources:
+      - path: AstroNuit/Resources/Textures
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.astronuit.app
         PRODUCT_NAME: Astro_Nuit
-        MARKETING_VERSION: "0.3.0"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "0.4.0"
+        CURRENT_PROJECT_VERSION: "4"
