@@ -2,11 +2,9 @@ name: Build Astro_Nuit
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -19,23 +17,25 @@ jobs:
 
       - name: Show structure
         run: |
+          echo "=== Repository contents ==="
           ls -la
-          find . -type f \( -name "*.swift" -o -name "project.yml" \) | head -40
+          echo "=== Swift files ==="
+          find . -name "*.swift" | head -40
+          ls -la project.yml || echo "NO project.yml found"
 
       - name: Select Xcode
         run: |
           sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode_16.1.app || true
           xcodebuild -version
 
-      - name: Install XcodeGen & generate project
-        run: |
-          brew install xcodegen
-          xcodegen generate
-          ls -la *.xcodeproj || true
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
 
       - name: Build
         run: |
-          set -e
           xcodebuild \
             -project AstroNuit.xcodeproj \
             -scheme AstroNuit \
@@ -46,23 +46,23 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build
 
-      - name: Package IPA
+      - name: Package
         if: always()
         run: |
           mkdir -p Payload final
-          APP=$(find ~/Library/Developer/Xcode/DerivedData -name "Astro_Nuit.app" -o -name "AstroNuit.app" 2>/dev/null | head -1 || true)
+          APP=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" 2>/dev/null | head -1 || true)
           if [ -n "$APP" ]; then
-            echo "Found $APP"
+            echo "Found app: $APP"
             cp -R "$APP" Payload/
             zip -r AstroNuit-unsigned.ipa Payload
+            ls -lh AstroNuit-unsigned.ipa
           else
-            echo "No .app — packaging sources"
-            zip -r AstroNuit-unsigned.ipa AstroNuit project.yml README.md || zip -r AstroNuit-unsigned.ipa .
+            echo "WARNING: No .app was produced by xcodebuild"
+            zip -r AstroNuit-unsigned.ipa AstroNuit project.yml || true
           fi
-          cp .github/workflows/build.yml final/workflow.yml
           cp AstroNuit-unsigned.ipa final/ 2>/dev/null || true
+          cp .github/workflows/build.yml final/workflow.yml
           cd final && zip -r ../AstroNuit-Build-Output.zip . && cd ..
-          ls -la
 
       - name: Upload Artifact
         if: always()
@@ -70,10 +70,4 @@ jobs:
         with:
           name: AstroNuit-Build
           path: AstroNuit-Build-Output.zip
-          retention-days: 7
-
-      # Auto-clean DISABLED for now so we don't lose source code
-      # - name: Clean repo
-      #   if: always()
-      #   run: |
-      #     ...
+          retention-days: 5
