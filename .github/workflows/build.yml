@@ -1,0 +1,79 @@
+name: Build Astro_Nuit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show structure
+        run: |
+          ls -la
+          find . -type f \( -name "*.swift" -o -name "project.yml" \) | head -40
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode_16.1.app || true
+          xcodebuild -version
+
+      - name: Install XcodeGen & generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          ls -la *.xcodeproj || true
+
+      - name: Build
+        run: |
+          set -e
+          xcodebuild \
+            -project AstroNuit.xcodeproj \
+            -scheme AstroNuit \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Package IPA
+        if: always()
+        run: |
+          mkdir -p Payload final
+          APP=$(find ~/Library/Developer/Xcode/DerivedData -name "Astro_Nuit.app" -o -name "AstroNuit.app" 2>/dev/null | head -1 || true)
+          if [ -n "$APP" ]; then
+            echo "Found $APP"
+            cp -R "$APP" Payload/
+            zip -r AstroNuit-unsigned.ipa Payload
+          else
+            echo "No .app — packaging sources"
+            zip -r AstroNuit-unsigned.ipa AstroNuit project.yml README.md || zip -r AstroNuit-unsigned.ipa .
+          fi
+          cp .github/workflows/build.yml final/workflow.yml
+          cp AstroNuit-unsigned.ipa final/ 2>/dev/null || true
+          cd final && zip -r ../AstroNuit-Build-Output.zip . && cd ..
+          ls -la
+
+      - name: Upload Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstroNuit-Build
+          path: AstroNuit-Build-Output.zip
+          retention-days: 7
+
+      # Auto-clean DISABLED for now so we don't lose source code
+      # - name: Clean repo
+      #   if: always()
+      #   run: |
+      #     ...
